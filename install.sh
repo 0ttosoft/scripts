@@ -90,6 +90,9 @@ if ! command -v git &>/dev/null; then
   log "INFO" "📦 Installing Git..."
   if [[ "$PKG_MANAGER" == "apt" ]]; then
     sudo apt-get update -y
+    sudo apt-get install -y software-properties-common
+    sudo add-apt-repository -y ppa:git-core/ppa
+    sudo apt-get update -y
     sudo apt-get install -y git
   elif [[ "$PKG_MANAGER" == "brew" ]]; then
     brew install git
@@ -97,7 +100,6 @@ if ! command -v git &>/dev/null; then
     sudo $PKG_MANAGER install -y git
   fi
 
-  # verify installation
   if command -v git &>/dev/null; then
       log "INFO" "✅ Git installed successfully: $(git --version)"
   else
