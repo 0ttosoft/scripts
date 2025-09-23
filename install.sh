@@ -50,14 +50,22 @@ if ! command -v git &>/dev/null; then
   sudo add-apt-repository -y ppa:git-core/ppa
   sudo apt-get update -y
   sudo apt-get install -y git
-  hash -r
 else
   log "INFO" "📦 Checking for Git updates via git-core PPA..."
   sudo add-apt-repository -y ppa:git-core/ppa
   sudo apt-get update -y
   sudo apt-get install -y git
-  hash -r
 fi
+
+# Refresh PATH + shell cache
+hash -r
+export PATH="/usr/bin:/usr/local/bin:$PATH"
+
+if ! command -v git &>/dev/null; then
+  log "ERROR" "❌ Git still not found after installation. Please check PATH or reinstall."
+  exit 1
+fi
+
 INSTALLED_GIT_VERSION=$(git --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tr -d '\n\t\r ')
 log "INFO" "✅ Git $INSTALLED_GIT_VERSION installed/updated."
 
