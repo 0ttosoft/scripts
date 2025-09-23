@@ -109,7 +109,7 @@ fi
 INSTALLED_KUBECTL=$(kubectl version --client --short 2>/dev/null | awk '{print $3}' || true)
 if [[ "$INSTALLED_KUBECTL" != "$KUBECTL_VERSION" ]]; then
   log "INFO" "📦 Installing/Upgrading kubectl $KUBECTL_VERSION..."
-  curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl"
+  curl -L "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl" -o kubectl
   chmod +x kubectl
   sudo mv kubectl /usr/local/bin/
 else
@@ -121,7 +121,7 @@ KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/release
 INSTALLED_KIND=$(kind --version 2>/dev/null | awk '{print $2}' || true)
 if [[ "$INSTALLED_KIND" != "$KIND_VERSION" ]]; then
   log "INFO" "📦 Installing/Upgrading Kind $KIND_VERSION..."
-  curl -Lo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-${OS}-${ARCH}"
+  curl -L "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-${OS}-${ARCH}" -o kind
   chmod +x kind
   sudo mv kind /usr/local/bin/
 else
@@ -150,7 +150,7 @@ if [[ "$INSTALLED_K9S" != "$K9S_VERSION" ]]; then
   if [[ "$PKG_MANAGER" == "brew" ]]; then
     brew install derailed/k9s/k9s || brew upgrade k9s
   else
-    curl -Lo k9s.tar.gz "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_${OS}_${ARCH}.tar.gz"
+    curl -L "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_${OS}_${ARCH}.tar.gz" -o k9s.tar.gz
     tar -xzf k9s.tar.gz k9s
     sudo install -o root -g root -m 0755 k9s /usr/local/bin/k9s
     rm -f k9s k9s.tar.gz
