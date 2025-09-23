@@ -2,7 +2,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-LOG_FILE="${HOME}/docker_git_kind_kubectl_install.log"
+LOG_FILE="${HOME}/docker_git_kind_kubectl_helm_k9s_install.log"
 
 log() {
   level="$1"
@@ -18,99 +18,111 @@ get_arch() {
   esac
 }
 
-log "INFO" "🚀 Starting Docker, Git, Kind, kubectl installation..."
+detect_pkg_manager() {
+  if command -v apt-get &>/dev/null; then
+    echo "apt"
+  elif command -v dnf &>/dev/null; then
+    echo "dnf"
+  elif command -v yum &>/dev/null; then
+    echo "yum"
+  else
+    log "ERROR" "No supported package manager found (apt, yum, dnf)."
+    exit 1
+  fi
+}
 
-# Ensure repo helper exists
-if ! command -v add-apt-repository &>/dev/null; then
-  log "INFO" "📦 Installing software-properties-common..."
-  sudo apt-get update -y
-  sudo apt-get install -y software-properties-common
-fi
+ARCH=$(get_arch)
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+PKG_MANAGER=$(detect_pkg_manager)
 
-# 1. Docker (Engine v28+)
+log "INFO" "🚀 Starting installation of Docker, Git, Kind, kubectl, Helm, and k9s..."
+log "INFO" "Detected package manager: $PKG_MANAGER"
+
+### 1. Docker ###
 DOCKER_MIN_VERSION="28."
-INSTALLED_DOCKER_VERSION=$(docker --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | tr -d '\n\t\r ' || true)
+INSTALLED_DOCKER_VERSION=$(docker --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || true)
 if [[ "$INSTALLED_DOCKER_VERSION" != "$DOCKER_MIN_VERSION"* ]]; then
   log "INFO" "📦 Installing/Upgrading Docker (Engine v28+)..."
   curl -fsSL https://get.docker.com -o get-docker.sh
   sudo sh get-docker.sh | tee -a "$LOG_FILE"
-  rm -f get-docker.sh
+  rm get-docker.sh
 else
-  log "INFO" "✅ Docker is already latest or up-to-date."
+  log "INFO" "✅ Docker is already up-to-date."
 fi
 
-# Docker group addition
 log "INFO" "👤 Adding current user to docker group..."
 sudo usermod -aG docker "$USER" || true
-log "INFO" "Please log out and log in again (or run 'newgrp docker') to use docker without sudo."
+log "INFO" "ℹ️ Logout/login or run 'newgrp docker' to apply group changes."
 
-# 2. Git (latest from git-core PPA)
+### 2. Git ###
 if ! command -v git &>/dev/null; then
-  log "INFO" "📦 Git not found. Installing via git-core PPA..."
-  sudo add-apt-repository -y ppa:git-core/ppa
-  sudo apt-get update -y
-  sudo apt-get install -y git
-else
-  log "INFO" "📦 Checking for Git updates via git-core PPA..."
-  sudo add-apt-repository -y ppa:git-core/ppa
-  sudo apt-get update -y
-  sudo apt-get install -y git
-fi
-
-# Refresh PATH + shell cache
-hash -r
-export PATH="/usr/bin:/usr/local/bin:$PATH"
-
-if ! command -v git &>/dev/null; then
-  log "ERROR" "❌ Git still not found after installation. Please check PATH or reinstall."
-  exit 1
-fi
-
-INSTALLED_GIT_VERSION=$(git --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tr -d '\n\t\r ')
-log "INFO" "✅ Git $INSTALLED_GIT_VERSION installed/updated."
-
-# 3. Kind (v0.30.0)
-REQUIRED_KIND_VERSION="0.30.0"
-INSTALLED_KIND_VERSION=$(kind --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tr -d '\n\t\r ' || true)
-if [[ "$INSTALLED_KIND_VERSION" != "$REQUIRED_KIND_VERSION" ]]; then
-  log "INFO" "📦 Installing/Upgrading Kind to $REQUIRED_KIND_VERSION..."
-  KIND_ARCH=$(get_arch)
-  curl -Lo ./kind "https://kind.sigs.k8s.io/dl/v${REQUIRED_KIND_VERSION}/kind-linux-${KIND_ARCH}"
-  chmod +x ./kind
-  sudo mv ./kind /usr/local/bin/kind
-  log "INFO" "✅ Kind $REQUIRED_KIND_VERSION installed/updated."
-else
-  log "INFO" "✅ Kind is already at $REQUIRED_KIND_VERSION."
-fi
-
-# 4. kubectl (latest stable with checksum validation)
-LATEST_KUBECTL_VERSION=$(curl -Ls https://dl.k8s.io/release/stable.txt | tr -d '\n\t\r ')
-INSTALLED_KUBECTL_VERSION=$(kubectl version --client --short 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | tr -d '\n\t\r ' || echo "")
-if [[ "$INSTALLED_KUBECTL_VERSION" != "$LATEST_KUBECTL_VERSION" && -n "$LATEST_KUBECTL_VERSION" ]]; then
-  log "INFO" "📦 Installing/Upgrading kubectl to $LATEST_KUBECTL_VERSION..."
-  KUBECTL_ARCH=$(get_arch)
-  url="https://dl.k8s.io/release/${LATEST_KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl"
-  curl -LO "$url"
-  curl -LO "${url}.sha256"
-  if echo "$(<kubectl.sha256) kubectl" | sha256sum --check; then
-    log "INFO" "kubectl checksum OK."
-    sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-    rm -f kubectl kubectl.sha256
-    log "INFO" "✅ kubectl $LATEST_KUBECTL_VERSION installed/updated."
+  log "INFO" "📦 Installing Git..."
+  if [[ "$PKG_MANAGER" == "apt" ]]; then
+    sudo apt-get update -y && sudo apt-get install -y git
   else
-    log "ERROR" "kubectl checksum failed!"
-    rm -f kubectl kubectl.sha256
-    exit 1
+    sudo $PKG_MANAGER install -y git
   fi
 else
-  log "INFO" "✅ kubectl is already at latest ($LATEST_KUBECTL_VERSION)."
+  log "INFO" "🔄 Updating Git..."
+  if [[ "$PKG_MANAGER" == "apt" ]]; then
+    sudo apt-get update -y && sudo apt-get install -y git
+  else
+    sudo $PKG_MANAGER install -y git
+  fi
+fi
+
+### 3. kubectl ###
+KUBECTL_VERSION=$(curl -s https://dl.k8s.io/release/stable.txt)
+INSTALLED_KUBECTL=$(kubectl version --client --short 2>/dev/null | awk '{print $3}' || true)
+if [[ "$INSTALLED_KUBECTL" != "$KUBECTL_VERSION" ]]; then
+  log "INFO" "📦 Installing/Upgrading kubectl $KUBECTL_VERSION..."
+  curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl"
+  sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+  rm kubectl
+else
+  log "INFO" "✅ kubectl is already up-to-date."
+fi
+
+### 4. Kind ###
+KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep tag_name | cut -d '"' -f4)
+INSTALLED_KIND=$(kind --version 2>/dev/null | awk '{print $2}' || true)
+if [[ "$INSTALLED_KIND" != "$KIND_VERSION" ]]; then
+  log "INFO" "📦 Installing/Upgrading Kind $KIND_VERSION..."
+  curl -Lo ./kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-${OS}-${ARCH}"
+  sudo install -o root -g root -m 0755 kind /usr/local/bin/kind
+  rm kind
+else
+  log "INFO" "✅ Kind is already up-to-date."
+fi
+
+### 5. Helm ###
+HELM_VERSION=$(curl -s https://api.github.com/repos/helm/helm/releases/latest | grep tag_name | cut -d '"' -f4)
+INSTALLED_HELM=$(helm version --short --client 2>/dev/null | cut -d '+' -f1 || true)
+if [[ "$INSTALLED_HELM" != "$HELM_VERSION" ]]; then
+  log "INFO" "📦 Installing/Upgrading Helm $HELM_VERSION..."
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+else
+  log "INFO" "✅ Helm is already up-to-date."
+fi
+
+### 6. k9s ###
+K9S_VERSION=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest | grep tag_name | cut -d '"' -f4)
+INSTALLED_K9S=$(k9s version -s 2>/dev/null | head -n1 | awk '{print $2}' || true)
+if [[ "$INSTALLED_K9S" != "$K9S_VERSION" ]]; then
+  log "INFO" "📦 Installing/Upgrading k9s $K9S_VERSION..."
+  curl -Lo k9s.tar.gz "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_${OS}_${ARCH}.tar.gz"
+  tar -xzf k9s.tar.gz k9s
+  sudo install -o root -g root -m 0755 k9s /usr/local/bin/k9s
+  rm -f k9s k9s.tar.gz
+else
+  log "INFO" "✅ k9s is already up-to-date."
 fi
 
 log "INFO" ""
-log "INFO" "🔍 Installed Versions:"
+log "INFO" "🎉 Installation Completed! Installed Versions:"
 docker --version | tee -a "$LOG_FILE"
 git --version | tee -a "$LOG_FILE"
+kubectl version --client --short | tee -a "$LOG_FILE"
 kind --version | tee -a "$LOG_FILE"
-kubectl version --client --output=yaml | tee -a "$LOG_FILE"
-log "INFO" ""
-log "INFO" "🎉 Docker, Git, Kind, and kubectl installation complete!"
+helm version --short | tee -a "$LOG_FILE"
+k9s version -s | head -n1 | tee -a "$LOG_FILE"
