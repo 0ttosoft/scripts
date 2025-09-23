@@ -88,6 +88,9 @@ if ! command -v git &>/dev/null; then
   else
     sudo $PKG_MANAGER install -y git
   fi
+  # Refresh shell path & command hash
+  export PATH=$PATH:/usr/bin:/usr/local/bin
+  hash -r
 else
   log "INFO" "🔄 Updating Git..."
   if [[ "$PKG_MANAGER" == "apt" ]]; then
@@ -97,7 +100,11 @@ else
   else
     sudo $PKG_MANAGER install -y git
   fi
+  # Refresh shell path & command hash
+  export PATH=$PATH:/usr/bin:/usr/local/bin
+  hash -r
 fi
+
 
 ### 3. kubectl ###
 KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
