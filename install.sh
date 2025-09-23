@@ -53,9 +53,12 @@ PKG_MANAGER=$(detect_pkg_manager)
 log "INFO" "🚀 Starting installation of Docker, Git, Kind, kubectl, Helm, and k9s..."
 log "INFO" "Detected OS: $OS | Arch: $ARCH | Package Manager: $PKG_MANAGER"
 
-prompt_update() {
-  local name="$1"
-  read -rp "Update available for $name. Do you want to update? [y/N]: " response
+confirm_update() {
+  local tool="$1"
+  local current="$2"
+  local latest="$3"
+
+  read -rp "Update available for $tool: $current → $latest. Update? [y/N]: " response
   case "$response" in
     [yY][eE][sS]|[yY]) return 0 ;;
     *) return 1 ;;
@@ -74,6 +77,8 @@ if [[ "$OS" == "linux" ]]; then
   else
     log "INFO" "✅ Docker is already up-to-date."
   fi
+
+  log "INFO" "👤 Adding current user to docker group..."
   sudo usermod -aG docker "$USER" || true
   log "INFO" "ℹ️ Logout/login or run 'newgrp docker' to apply group changes."
 else
@@ -86,41 +91,47 @@ else
 fi
 
 ### 2. Git ###
-if ! command -v git &>/dev/null; then
-  log "INFO" "📦 Installing Git..."
-  if [[ "$PKG_MANAGER" == "apt" ]]; then
-    sudo apt-get update -y
-    sudo apt-get install -y software-properties-common
-    sudo add-apt-repository -y ppa:git-core/ppa
-    sudo apt-get update -y
-    sudo apt-get install -y git
-  elif [[ "$PKG_MANAGER" == "brew" ]]; then
-    brew install git
-  else
-    sudo $PKG_MANAGER install -y git
-  fi
-
-  if command -v git &>/dev/null; then
-      log "INFO" "✅ Git installed successfully: $(git --version)"
-  else
-      log "ERROR" "Git installation failed or not found in PATH"
-  fi
+INSTALLED_GIT=$(git --version 2>/dev/null | awk '{print $3}' || true)
+LATEST_GIT=""
+if [[ "$PKG_MANAGER" == "apt" ]]; then
+  sudo apt-get update -y
+  sudo apt-get install -y git || true
+elif [[ "$PKG_MANAGER" == "brew" ]]; then
+  brew install git || brew upgrade git
 else
-  log "INFO" "🔄 Git already installed: $(git --version)"
+  sudo $PKG_MANAGER install -y git
+fi
+
+# Force shell refresh
+export PATH=$PATH:/usr/bin:/usr/local/bin
+hash -r
+
+# Check git after install
+if command -v git &>/dev/null; then
+  INSTALLED_GIT=$(git --version | awk '{print $3}')
+  log "INFO" "✅ Git installed: $(git --version)"
+else
+  log "WARN" "Git still not found, attempting symlink..."
+  if [ -f /usr/bin/git ] || [ -f /usr/local/bin/git ]; then
+    sudo ln -sf $(command -v git) /usr/bin/git
+    hash -r
+    log "INFO" "✅ Git symlinked to /usr/bin/git"
+  else
+    log "ERROR" "Git installation failed or not found in PATH"
+  fi
 fi
 
 ### 3. kubectl ###
-KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt | tr -d 'v')
-INSTALLED_KUBECTL=$(kubectl version --client --short 2>/dev/null | awk '{print $3}' | tr -d 'v' || true)
+KUBECTL_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
+INSTALLED_KUBECTL=$(kubectl version --client --short 2>/dev/null | awk '{print $3}' || true)
 if [[ "$INSTALLED_KUBECTL" != "$KUBECTL_VERSION" ]]; then
-  if prompt_update "kubectl"; then
-    log "INFO" "📦 Installing/Upgrading kubectl $KUBECTL_VERSION..."
-    curl -L "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl" -o kubectl
-    chmod +x kubectl
-    sudo mv kubectl /usr/local/bin/
-  else
-    log "INFO" "⏭ Skipping kubectl update."
+  if [[ -n "$INSTALLED_KUBECTL" ]]; then
+    confirm_update "kubectl" "$INSTALLED_KUBECTL" "$KUBECTL_VERSION" || log "INFO" "⏭ Skipping kubectl update."
   fi
+  log "INFO" "📦 Installing/Upgrading kubectl $KUBECTL_VERSION..."
+  curl -L "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl" -o kubectl
+  chmod +x kubectl
+  sudo mv kubectl /usr/local/bin/
 else
   log "INFO" "✅ kubectl is already up-to-date."
 fi
@@ -129,14 +140,13 @@ fi
 KIND_VERSION=$(curl -s https://api.github.com/repos/kubernetes-sigs/kind/releases/latest | grep tag_name | cut -d '"' -f4)
 INSTALLED_KIND=$(kind --version 2>/dev/null | awk '{print $2}' || true)
 if [[ "$INSTALLED_KIND" != "$KIND_VERSION" ]]; then
-  if prompt_update "Kind"; then
-    log "INFO" "📦 Installing/Upgrading Kind $KIND_VERSION..."
-    curl -L "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-${OS}-${ARCH}" -o kind
-    chmod +x kind
-    sudo mv kind /usr/local/bin/
-  else
-    log "INFO" "⏭ Skipping Kind update."
+  if [[ -n "$INSTALLED_KIND" ]]; then
+    confirm_update "Kind" "$INSTALLED_KIND" "$KIND_VERSION" || log "INFO" "⏭ Skipping Kind update."
   fi
+  log "INFO" "📦 Installing/Upgrading Kind $KIND_VERSION..."
+  curl -L "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-${OS}-${ARCH}" -o kind
+  chmod +x kind
+  sudo mv kind /usr/local/bin/
 else
   log "INFO" "✅ Kind is already up-to-date."
 fi
@@ -145,15 +155,14 @@ fi
 HELM_VERSION=$(curl -s https://api.github.com/repos/helm/helm/releases/latest | grep tag_name | cut -d '"' -f4)
 INSTALLED_HELM=$(helm version --short --client 2>/dev/null | cut -d '+' -f1 || true)
 if [[ "$INSTALLED_HELM" != "$HELM_VERSION" ]]; then
-  if prompt_update "Helm"; then
-    log "INFO" "📦 Installing/Upgrading Helm $HELM_VERSION..."
-    if [[ "$PKG_MANAGER" == "brew" ]]; then
-      brew install helm || brew upgrade helm
-    else
-      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-    fi
+  if [[ -n "$INSTALLED_HELM" ]]; then
+    confirm_update "Helm" "$INSTALLED_HELM" "$HELM_VERSION" || log "INFO" "⏭ Skipping Helm update."
+  fi
+  log "INFO" "📦 Installing/Upgrading Helm $HELM_VERSION..."
+  if [[ "$PKG_MANAGER" == "brew" ]]; then
+    brew install helm || brew upgrade helm
   else
-    log "INFO" "⏭ Skipping Helm update."
+    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
   fi
 else
   log "INFO" "✅ Helm is already up-to-date."
@@ -163,18 +172,17 @@ fi
 K9S_VERSION=$(curl -s https://api.github.com/repos/derailed/k9s/releases/latest | grep tag_name | cut -d '"' -f4)
 INSTALLED_K9S=$(k9s version -s 2>/dev/null | head -n1 | awk '{print $2}' || true)
 if [[ "$INSTALLED_K9S" != "$K9S_VERSION" ]]; then
-  if prompt_update "k9s"; then
-    log "INFO" "📦 Installing/Upgrading k9s $K9S_VERSION..."
-    if [[ "$PKG_MANAGER" == "brew" ]]; then
-      brew install derailed/k9s/k9s || brew upgrade k9s
-    else
-      curl -L "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_${OS}_${ARCH}.tar.gz" -o k9s.tar.gz
-      tar -xzf k9s.tar.gz k9s
-      sudo install -o root -g root -m 0755 k9s /usr/local/bin/k9s
-      rm -f k9s k9s.tar.gz
-    fi
+  if [[ -n "$INSTALLED_K9S" ]]; then
+    confirm_update "k9s" "$INSTALLED_K9S" "$K9S_VERSION" || log "INFO" "⏭ Skipping k9s update."
+  fi
+  log "INFO" "📦 Installing/Upgrading k9s $K9S_VERSION..."
+  if [[ "$PKG_MANAGER" == "brew" ]]; then
+    brew install derailed/k9s/k9s || brew upgrade k9s
   else
-    log "INFO" "⏭ Skipping k9s update."
+    curl -L "https://github.com/derailed/k9s/releases/download/${K9S_VERSION}/k9s_${OS}_${ARCH}.tar.gz" -o k9s.tar.gz
+    tar -xzf k9s.tar.gz k9s
+    sudo install -o root -g root -m 0755 k9s /usr/local/bin/k9s
+    rm -f k9s k9s.tar.gz
   fi
 else
   log "INFO" "✅ k9s is already up-to-date."
