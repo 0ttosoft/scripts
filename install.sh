@@ -89,16 +89,22 @@ fi
 if ! command -v git &>/dev/null; then
   log "INFO" "📦 Installing Git..."
   if [[ "$PKG_MANAGER" == "apt" ]]; then
-    sudo apt-get update -y && sudo apt-get install -y git
+    sudo apt-get update -y
+    sudo apt-get install -y git
   elif [[ "$PKG_MANAGER" == "brew" ]]; then
     brew install git
   else
     sudo $PKG_MANAGER install -y git
   fi
-  export PATH=$PATH:/usr/bin:/usr/local/bin
-  hash -r
+
+  # verify installation
+  if command -v git &>/dev/null; then
+      log "INFO" "✅ Git installed successfully: $(git --version)"
+  else
+      log "ERROR" "Git installation failed or not found in PATH"
+  fi
 else
-  log "INFO" "🔄 Git already installed."
+  log "INFO" "🔄 Git already installed: $(git --version)"
 fi
 
 ### 3. kubectl ###
