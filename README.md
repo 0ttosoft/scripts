@@ -10,3 +10,7 @@ history -w
 rm -f ~/.bash_history
 ```
 ---
+### Docker, Git, Kind, kubectl installation
+```bash
+curl -sL https://raw.githubusercontent.com/0ttosoft/scripts/main/install.sh | bash
+```
