@@ -14,3 +14,17 @@ rm -f ~/.bash_history
 ```bash
 curl -sL https://raw.githubusercontent.com/0ttosoft/scripts/main/install.sh | bash
 ```
+
+---
+
+### Universal Kubernetes Backup Bash Script
+```bash
+curl -sL https://raw.githubusercontent.com/0ttosoft/scripts/main/k8s-resource-backup.sh | bash
+```
+
+Enter backup target directory path: /tmp/backup-script
+
+##### For download backup-script direcory in local computer
+```bash
+scp -r username@serverip:/tmp/backup-script ~/backup-script
+```
